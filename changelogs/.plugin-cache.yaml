@@ -5,7 +5,11 @@ plugins:
   callback: {}
   cliconf: {}
   connection: {}
-  httpapi: {}
+  httpapi:
+    zabbix:
+      description: HttpApi Plugin for Zabbix
+      name: zabbix
+      version_added: 1.8.0
   inventory:
     zabbix_inventory:
       description: Zabbix Inventory Plugin
@@ -18,6 +22,16 @@ plugins:
       name: zabbix_action
       namespace: ''
       version_added: null
+    zabbix_authentication:
+      description: Update Zabbix authentication
+      name: zabbix_authentication
+      namespace: ''
+      version_added: 1.6.0
+    zabbix_autoregister:
+      description: Update Zabbix autoregistration
+      name: zabbix_autoregister
+      namespace: ''
+      version_added: 1.6.0
     zabbix_discovery_rule:
       description: Create/delete/update Zabbix discovery rules
       name: zabbix_discovery_rule
@@ -58,6 +72,11 @@ plugins:
       name: zabbix_hostmacro
       namespace: ''
       version_added: null
+    zabbix_housekeeping:
+      description: Update Zabbix housekeeping
+      name: zabbix_housekeeping
+      namespace: ''
+      version_added: 1.6.0
     zabbix_maintenance:
       description: Create Zabbix maintenance windows
       name: zabbix_maintenance
@@ -78,11 +97,21 @@ plugins:
       name: zabbix_proxy
       namespace: ''
       version_added: null
+    zabbix_proxy_info:
+      description: Gather information about Zabbix proxy
+      name: zabbix_proxy_info
+      namespace: ''
+      version_added: 1.5.0
     zabbix_screen:
       description: Create/update/delete Zabbix screens
       name: zabbix_screen
       namespace: ''
       version_added: null
+    zabbix_script:
+      description: Create/update/delete Zabbix scripts
+      name: zabbix_script
+      namespace: ''
+      version_added: 1.7.0
     zabbix_service:
       description: Create/update/delete Zabbix service
       name: zabbix_service
@@ -103,9 +132,19 @@ plugins:
       name: zabbix_user
       namespace: ''
       version_added: null
+    zabbix_user_directory:
+      description: Create/update/delete Zabbix user directories
+      name: zabbix_user_directory
+      namespace: ''
+      version_added: null
     zabbix_user_info:
       description: Gather information about Zabbix user
       name: zabbix_user_info
+      namespace: ''
+      version_added: null
+    zabbix_user_role:
+      description: Adds or removes zabbix roles
+      name: zabbix_user_role
       namespace: ''
       version_added: null
     zabbix_usergroup:
@@ -122,4 +161,4 @@ plugins:
   shell: {}
   strategy: {}
   vars: {}
-version: 1.4.0
+version: 1.9.2

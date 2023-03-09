@@ -21,7 +21,6 @@ author:
     - "Dusan Matejka (@D3DeFi)"
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
 options:
     template_name:
         description:
@@ -49,8 +48,8 @@ options:
         type: str
     template_groups:
         description:
-            - List of host groups to add template to when template is created.
-            - Replaces the current host groups the template belongs to if the template is already present.
+            - List of template groups to add template to when template is created.
+            - Replaces the current template groups the template belongs to if the template is already present.
             - Required when creating a new template with C(state=present) and I(template_name) is used.
               Not required when updating an existing template.
         required: false
@@ -91,6 +90,25 @@ options:
                     - Value of the macro.
                 type: str
                 required: true
+    tags:
+        description:
+            - List of tags to assign to the template.
+            - Works only with >= Zabbix 4.2.
+            - Providing I(tags=[]) with I(force=yes) will clean all of the tags from the template.
+        required: false
+        type: list
+        elements: dict
+        suboptions:
+            tag:
+                description:
+                    - Name of the template tag.
+                type: str
+                required: true
+            value:
+                description:
+                    - Value of the template tag.
+                type: str
+                default: ''
     dump_format:
         description:
             - Format to use when dumping template with C(state=dump).
@@ -121,16 +139,37 @@ options:
 extends_documentation_fragment:
 - community.zabbix.zabbix
 
+notes:
+- there where breaking changes in the Zabbix API with version 5.4 onwards (especially UUIDs) which may
+  require you to export the templates again (see version tag >= 5.4 in the resulting file/data).
 '''
 
 EXAMPLES = r'''
 ---
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 - name: Create a new Zabbix template linked to groups, macros and templates
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: ExampleHost
     template_groups:
       - Role
@@ -148,11 +187,7 @@ EXAMPLES = r'''
     state: present
 
 - name: Unlink and clear templates from the existing Zabbix template
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: ExampleHost
     clear_templates:
       - Example template3
@@ -160,28 +195,17 @@ EXAMPLES = r'''
     state: present
 
 - name: Import Zabbix templates from JSON
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_json: "{{ lookup('file', 'zabbix_apache2.json') }}"
     state: present
 
 - name: Import Zabbix templates from XML
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
-    template_xml: "{{ lookup('file', 'zabbix_apache2.json') }}"
+  community.zabbix.zabbix_template:
+    template_xml: "{{ lookup('file', 'zabbix_apache2.xml') }}"
     state: present
 
 - name: Import Zabbix template from Ansible dict variable
   community.zabbix.zabbix_template:
-    login_user: username
-    login_password: password
-    server_url: http://127.0.0.1
     template_json:
       zabbix_export:
         version: '3.2'
@@ -196,43 +220,35 @@ EXAMPLES = r'''
     state: present
 
 - name: Configure macros on the existing Zabbix template
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: Template
     macros:
       - macro: '{$TEST_MACRO}'
         value: 'Example'
     state: present
 
+- name: Add tags to the existing Zabbix template
+  community.zabbix.zabbix_template:
+    template_name: Template
+    tags:
+      - tag: class
+        value: application
+    state: present
+
 - name: Delete Zabbix template
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: Template
     state: absent
 
 - name: Dump Zabbix template as JSON
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: Template
     omit_date: yes
     state: dump
   register: template_dump
 
 - name: Dump Zabbix template as XML
-  local_action:
-    module: community.zabbix.zabbix_template
-    server_url: http://127.0.0.1
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_template:
     template_name: Template
     dump_format: xml
     omit_date: false
@@ -311,35 +327,29 @@ import traceback
 import re
 import xml.etree.ElementTree as ET
 
-from distutils.version import LooseVersion
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils._text import to_native
 from ansible.module_utils.six import PY2
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
+from ansible.module_utils.compat.version import LooseVersion
+
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
 class Template(ZabbixBase):
-    # check if host group exists
-    def check_host_group_exist(self, group_names):
-        for group_name in group_names:
-            result = self._zapi.hostgroup.get({'filter': {'name': group_name}})
-            if not result:
-                self._module.fail_json(msg="Hostgroup not found: %s" %
-                                       group_name)
-        return True
-
     # get group ids by group names
     def get_group_ids_by_group_names(self, group_names):
         group_ids = []
-        if group_names is None or len(group_names) == 0:
-            return group_ids
-        if self.check_host_group_exist(group_names):
-            group_list = self._zapi.hostgroup.get({'output': 'extend', 'filter': {'name': group_names}})
-            for group in group_list:
-                group_id = group['groupid']
-                group_ids.append({'groupid': group_id})
+        for group_name in group_names:
+            if LooseVersion(self._zbx_api_version) >= LooseVersion('6.2'):
+                group = self._zapi.templategroup.get({'output': ['groupid'], 'filter': {'name': group_name}})
+            else:
+                group = self._zapi.hostgroup.get({'output': ['groupid'], 'filter': {'name': group_name}})
+            if group:
+                group_ids.append({'groupid': group[0]['groupid']})
+            else:
+                self._module.fail_json(msg="Template group not found: %s" % group_name)
         return group_ids
 
     def get_template_ids(self, template_list):
@@ -352,18 +362,25 @@ class Template(ZabbixBase):
                 continue
             else:
                 template_id = template_list[0]['templateid']
-                template_ids.append(template_id)
+                template_ids.append({'templateid': template_id})
         return template_ids
 
-    def add_template(self, template_name, group_ids, link_template_ids, macros):
+    def add_template(self, template_name, group_ids, link_template_ids, macros, tags):
         if self._module.check_mode:
             self._module.exit_json(changed=True)
 
-        self._zapi.template.create({'host': template_name, 'groups': group_ids, 'templates': link_template_ids,
-                                    'macros': macros})
+        new_template = {'host': template_name, 'groups': group_ids, 'templates': link_template_ids, 'macros': macros, 'tags': tags}
+        if macros is None:
+            new_template.update({'macros': []})
+        if tags is None:
+            new_template.update({'tags': []})
+        if link_template_ids is None:
+            new_template.update({'templates': []})
+
+        self._zapi.template.create(new_template)
 
     def check_template_changed(self, template_ids, template_groups, link_templates, clear_templates,
-                               template_macros, template_content, template_type):
+                               template_macros, template_tags, template_content, template_type):
         """Compares template parameters to already existing values if any are found.
 
         template_json - JSON structures are compared as deep sorted dictionaries,
@@ -392,7 +409,10 @@ class Template(ZabbixBase):
 
         # If neither template_json or template_xml were used, user provided all parameters via module options
         if template_groups is not None:
-            existing_groups = [g['name'] for g in existing_template['zabbix_export']['groups']]
+            if LooseVersion(self._zbx_api_version) >= LooseVersion('6.2'):
+                existing_groups = [g['name'] for g in existing_template['zabbix_export']['template_groups']]
+            else:
+                existing_groups = [g['name'] for g in existing_template['zabbix_export']['groups']]
 
             if set(template_groups) != set(existing_groups):
                 changed = True
@@ -424,9 +444,17 @@ class Template(ZabbixBase):
             if template_macros != existing_macros:
                 changed = True
 
+        if LooseVersion(self._zbx_api_version) >= LooseVersion('4.2'):
+            if 'tags' not in existing_template['zabbix_export']['templates'][0]:
+                existing_template['zabbix_export']['templates'][0]['tags'] = []
+            if template_tags is not None:
+                existing_tags = existing_template['zabbix_export']['templates'][0]['tags']
+                if template_tags != existing_tags:
+                    changed = True
+
         return changed
 
-    def update_template(self, template_ids, group_ids, link_template_ids, clear_template_ids, template_macros):
+    def update_template(self, template_ids, group_ids, link_template_ids, clear_template_ids, template_macros, template_tags):
         template_changes = {}
         if group_ids is not None:
             template_changes.update({'groups': group_ids})
@@ -441,16 +469,25 @@ class Template(ZabbixBase):
 
         if template_macros is not None:
             template_changes.update({'macros': template_macros})
+        else:
+            template_changes.update({'macros': []})
+
+        if template_tags is not None:
+            template_changes.update({'tags': template_tags})
+        else:
+            template_changes.update({'tags': []})
 
         if template_changes:
             # If we got here we know that only one template was provided via template_name
-            template_changes.update({'templateid': template_ids[0]})
+            template_changes.update(template_ids[0])
             self._zapi.template.update(template_changes)
 
     def delete_template(self, templateids):
         if self._module.check_mode:
             self._module.exit_json(changed=True)
-        self._zapi.template.delete(templateids)
+
+        templateids_list = [t.get('templateid') for t in templateids]
+        self._zapi.template.delete(templateids_list)
 
     def ordered_json(self, obj):
         # Deep sort json dicts for comparison
@@ -462,8 +499,9 @@ class Template(ZabbixBase):
             return obj
 
     def dump_template(self, template_ids, template_type='json', omit_date=False):
+        template_ids_list = [t.get('templateid') for t in template_ids]
         try:
-            dump = self._zapi.configuration.export({'format': template_type, 'options': {'templates': template_ids}})
+            dump = self._zapi.configuration.export({'format': template_type, 'options': {'templates': template_ids_list}})
             if template_type == 'xml':
                 xmlroot = ET.fromstring(dump.encode('utf-8'))
                 # remove date field if requested
@@ -568,7 +606,7 @@ class Template(ZabbixBase):
                 'updateExisting': True,
                 'deleteMissing': True
             },
-            'groups': {
+            'host_groups': {
                 'createMissing': True
             },
             'httptests': {
@@ -584,6 +622,9 @@ class Template(ZabbixBase):
             'templates': {
                 'createMissing': True,
                 'updateExisting': True
+            },
+            'template_groups': {
+                'createMissing': True
             },
             'templateLinkage': {
                 'createMissing': True
@@ -626,6 +667,12 @@ class Template(ZabbixBase):
             if LooseVersion(self._zbx_api_version) >= LooseVersion('5.4'):
                 update_rules.pop('applications', None)
 
+            # before Zabbix 6.2 host_groups and template_group are joined into groups parameter
+            if LooseVersion(self._zbx_api_version) < LooseVersion('6.2'):
+                update_rules['groups'] = {'createMissing': True}
+                update_rules.pop('host_groups', None)
+                update_rules.pop('template_groups', None)
+
             # The loaded unicode slash of multibyte as a string is escaped when parsing JSON by json.loads in Python2.
             # So, it is imported in the unicode string into Zabbix.
             # The following processing is removing the unnecessary slash in escaped for decoding correctly to the multibyte string.
@@ -657,6 +704,14 @@ def main():
                 value=dict(type='str', required=True)
             )
         ),
+        tags=dict(
+            type='list',
+            elements='dict',
+            options=dict(
+                tag=dict(type='str', required=True),
+                value=dict(type='str', default='')
+            )
+        ),
         omit_date=dict(type='bool', required=False, default=False),
         dump_format=dict(type='str', required=False, default='json', choices=['json', 'xml']),
         state=dict(type='str', default="present", choices=['present', 'absent', 'dump']),
@@ -676,6 +731,12 @@ def main():
         supports_check_mode=True
     )
 
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
+
     template_name = module.params['template_name']
     template_json = module.params['template_json']
     template_xml = module.params['template_xml']
@@ -683,6 +744,7 @@ def main():
     link_templates = module.params['link_templates']
     clear_templates = module.params['clear_templates']
     template_macros = module.params['macros']
+    template_tags = module.params['tags']
     omit_date = module.params['omit_date']
     dump_format = module.params['dump_format']
     state = module.params['state']
@@ -747,6 +809,11 @@ def main():
                 for key in macroitem:
                     macroitem[key] = str(macroitem[key])
 
+        if template_tags is not None:
+            for tagitem in template_tags:
+                for key in tagitem:
+                    tagitem[key] = str(tagitem[key])
+
         if not template_ids:
             # Assume new templates are being added when no ID's were found
             if template_content is not None:
@@ -757,12 +824,12 @@ def main():
                 if group_ids is None:
                     module.fail_json(msg='template_groups are required when creating a new Zabbix template')
 
-                template.add_template(template_name, group_ids, link_template_ids, template_macros)
+                template.add_template(template_name, group_ids, link_template_ids, template_macros, template_tags)
                 module.exit_json(changed=True, result="Successfully added template: %s" % template_name)
 
         else:
             changed = template.check_template_changed(template_ids, template_groups, link_templates, clear_templates,
-                                                      template_macros, template_content, template_type)
+                                                      template_macros, template_tags, template_content, template_type)
 
             if module.check_mode:
                 module.exit_json(changed=changed)
@@ -772,7 +839,7 @@ def main():
                     template.import_template(template_content, template_type)
                 else:
                     template.update_template(template_ids, group_ids, link_template_ids, clear_template_ids,
-                                             template_macros)
+                                             template_macros, template_tags)
 
             module.exit_json(changed=changed, result="Template successfully updated")
 

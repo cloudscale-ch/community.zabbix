@@ -32,7 +32,6 @@ author:
     - "Alen Komic (@akomic)"
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
 options:
     proxy_name:
         description:
@@ -158,12 +157,30 @@ extends_documentation_fragment:
 '''
 
 EXAMPLES = r'''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 - name: Create or update a proxy with proxy type active
-  local_action:
-    module: community.zabbix.zabbix_proxy
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_proxy:
     proxy_name: ExampleProxy
     description: ExampleProxy
     status: active
@@ -171,11 +188,7 @@ EXAMPLES = r'''
     proxy_address: ExampleProxy.local
 
 - name: Create a new passive proxy using only it's IP
-  local_action:
-    module: community.zabbix.zabbix_proxy
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_proxy:
     proxy_name: ExampleProxy
     description: ExampleProxy
     status: passive
@@ -186,11 +199,7 @@ EXAMPLES = r'''
       port: 10051
 
 - name: Create a new passive proxy using only it's DNS
-  local_action:
-    module: community.zabbix.zabbix_proxy
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_proxy:
     proxy_name: ExampleProxy
     description: ExampleProxy
     status: passive
@@ -203,10 +212,11 @@ EXAMPLES = r'''
 RETURN = r''' # '''
 
 
-from distutils.version import LooseVersion
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
+from ansible.module_utils.compat.version import LooseVersion
+
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
@@ -241,6 +251,10 @@ class Proxy(ZabbixBase):
 
             if 'interface' in data and data['status'] != '6':
                 parameters.pop('interface', False)
+            else:
+                if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0'):
+                    parameters['interface'].pop('type')
+                    parameters['interface'].pop('main')
 
             proxy_ids_list = self._zapi.proxy.create(parameters)
             self._module.exit_json(changed=True,
@@ -259,62 +273,56 @@ class Proxy(ZabbixBase):
         except Exception as e:
             self._module.fail_json(msg="Failed to delete proxy %s: %s" % (proxy_name, str(e)))
 
-    def compile_interface_params(self, new_interface):
-        old_interface = {}
-        if 'interface' in self.existing_data and \
-           len(self.existing_data['interface']) > 0:
-            old_interface = self.existing_data['interface']
-
-        for item in ['type', 'main']:
-            new_interface.pop(item, False)
-
-        if LooseVersion(self._zbx_api_version) >= LooseVersion('5.0.0'):
-            if old_interface:
-                old_interface['details'] = str(old_interface['details'])
-
-        final_interface = old_interface.copy()
-        final_interface.update(new_interface)
-        final_interface = dict((k, str(v)) for k, v in final_interface.items())
-
-        if final_interface != old_interface:
-            return final_interface
-        else:
-            return {}
-
     def update_proxy(self, proxy_id, data):
         try:
             if self._module.check_mode:
                 self._module.exit_json(changed=True)
-            parameters = {'proxyid': proxy_id}
 
-            for item in data:
-                if data[item] and item in self.existing_data and \
-                   self.existing_data[item] != data[item]:
-                    parameters[item] = data[item]
-
+            parameters = {}
+            for key in data:
+                if data[key]:
+                    parameters[key] = data[key]
             if 'interface' in parameters:
-                parameters.pop('interface')
+                if parameters['status'] == '5':
+                    # Active proxy
+                    parameters.pop('interface', False)
+                else:
+                    # Passive proxy
+                    parameters['interface']['useip'] = str(parameters['interface']['useip'])
+                    if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0.0'):
+                        parameters['interface'].pop('type', False)
+                        parameters['interface'].pop('main', False)
+                    else:
+                        parameters['interface']['type'] = '0'
+                        parameters['interface']['main'] = '1'
+                        if ('interface' in self.existing_data
+                                and isinstance(self.existing_data['interface'], dict)):
+                            new_interface = self.existing_data['interface'].copy()
+                            new_interface.update(parameters['interface'])
+                            parameters['interface'] = new_interface
 
-            if 'proxy_address' in data and data['status'] != '5':
-                parameters.pop('proxy_address', False)
+            if parameters['status'] == '5':
+                # Active proxy
+                parameters.pop('tls_connect', False)
+            else:
+                # Passive proxy
+                parameters.pop('tls_accept', False)
 
-            if 'interface' in data and data['status'] != '6':
-                parameters.pop('interface', False)
+            parameters['proxyid'] = proxy_id
 
-            if 'interface' in data and data['status'] == '6':
-                new_interface = self.compile_interface_params(data['interface'])
-                if len(new_interface) > 0:
-                    parameters['interface'] = new_interface
+            change_parameters = {}
+            difference = zabbix_utils.helper_cleanup_data(zabbix_utils.helper_compare_dictionaries(parameters, self.existing_data, change_parameters))
 
-            if len(parameters) > 1:
+            if difference == {}:
+                self._module.exit_json(changed=False)
+            else:
+                difference['proxyid'] = proxy_id
                 self._zapi.proxy.update(parameters)
                 self._module.exit_json(
                     changed=True,
                     result="Successfully updated proxy %s (%s)" %
                            (data['host'], proxy_id)
                 )
-            else:
-                self._module.exit_json(changed=False)
         except Exception as e:
             self._module.fail_json(msg="Failed to update proxy %s: %s" %
                                        (data['host'], e))
@@ -333,7 +341,7 @@ def main():
         ca_cert=dict(type='str', required=False, default=None, aliases=['tls_issuer']),
         tls_subject=dict(type='str', required=False, default=None),
         tls_psk_identity=dict(type='str', required=False, default=None),
-        tls_psk=dict(type='str', required=False, default=None),
+        tls_psk=dict(type='str', required=False, default=None, no_log=True),
         interface=dict(
             type='dict',
             required=False,
@@ -352,6 +360,12 @@ def main():
         argument_spec=argument_spec,
         supports_check_mode=True
     )
+
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
 
     proxy_name = module.params['proxy_name']
     proxy_address = module.params['proxy_address']

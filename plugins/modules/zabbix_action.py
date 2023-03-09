@@ -23,7 +23,7 @@ author:
     - Ruben Harutyunov (@K-DOT)
 
 requirements:
-    - "zabbix-api >= 0.5.4"
+    - "python >= 2.6"
 
 options:
     name:
@@ -72,6 +72,7 @@ options:
             type:
                 description:
                     - Type (label) of the condition.
+                    - C(application) is available only with <= Zabbix 5.2.
                     - 'Possible values when I(event_source=trigger):'
                     - ' - C(host_group)'
                     - ' - C(host)'
@@ -142,19 +143,20 @@ options:
                     - Condition operator.
                     - When I(type) is set to C(time_period), the choices are C(in), C(not in).
                     - C(matches), C(does not match), C(Yes) and C(No) condition operators work only with >= Zabbix 4.0
+                    - When I(type) is set to C(maintenance_status), the choices are C(Yes) and C(No) for Zabbix >= 6.0
                 choices:
-                    - '='
-                    - '<>'
-                    - 'like'
-                    - 'not like'
-                    - 'in'
-                    - '>='
-                    - '<='
-                    - 'not in'
-                    - 'matches'
-                    - 'does not match'
-                    - 'Yes'
-                    - 'No'
+                    - C(equals) or C(=)
+                    - C(does not equal) or C(<>)
+                    - C(contains) or C(like)
+                    - C(does not contain) or C(not like)
+                    - C(in)
+                    - C(is greater than or equals) or C(>=)
+                    - C(is less than or equals) or C(<=)
+                    - C(not in)
+                    - C(matches)
+                    - C(does not match)
+                    - C(Yes)
+                    - C(No)
             formulaid:
                 description:
                     - Arbitrary unique ID that is used to reference the condition from a custom expression.
@@ -391,12 +393,31 @@ extends_documentation_fragment:
 '''
 
 EXAMPLES = '''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 # Trigger action with only one condition
 - name: Deploy trigger action
   community.zabbix.zabbix_action:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: Admin
-    login_password: secret
     name: "Send alerts to Admin"
     event_source: 'trigger'
     state: present
@@ -417,9 +438,6 @@ EXAMPLES = '''
 # Trigger action with multiple conditions and operations
 - name: Deploy trigger action
   community.zabbix.zabbix_action:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: Admin
-    login_password: secret
     name: "Send alerts to Admin"
     event_source: 'trigger'
     state: present
@@ -450,9 +468,6 @@ EXAMPLES = '''
 # Trigger action with recovery and acknowledge operations
 - name: Deploy trigger action
   community.zabbix.zabbix_action:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: Admin
-    login_password: secret
     name: "Send alerts to Admin"
     event_source: 'trigger'
     state: present
@@ -492,15 +507,15 @@ msg:
 '''
 
 
-from distutils.version import LooseVersion
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
-from ansible_collections.community.zabbix.plugins.module_utils.wrappers import ZapiWrapper
+from ansible.module_utils.compat.version import LooseVersion
+
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
-class Zapi(ZapiWrapper):
+class Zapi(ZabbixBase):
     def __init__(self, module, zbx=None):
         super(Zapi, self).__init__(module, zbx)
         self._zapi_wrapper = self
@@ -516,14 +531,17 @@ class Zapi(ZapiWrapper):
 
         """
         try:
-            _action = self._zapi.action.get({
+            _params = {
                 "selectOperations": "extend",
                 "selectRecoveryOperations": "extend",
                 "selectAcknowledgeOperations": "extend",
                 "selectFilter": "extend",
                 'filter': {'name': [name]}
-            })
-            if len(_action) > 0:
+            }
+            if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0'):
+                _params['selectUpdateOperations'] = _params.pop('selectAcknowledgeOperations', 'extend')
+            _action = self._zapi.action.get(_params)
+            if len(_action) > 0 and LooseVersion(self._zbx_api_version) < LooseVersion('6.0'):
                 _action[0]['recovery_operations'] = _action[0].pop('recoveryOperations', [])
                 _action[0]['acknowledge_operations'] = _action[0].pop('acknowledgeOperations', [])
             return _action
@@ -546,7 +564,7 @@ class Zapi(ZapiWrapper):
                 'filter': {'name': [name]}
             })
             if len(action_list) < 1:
-                self._module.fail_json(msg="Action not found: " % name)
+                self._module.fail_json(msg="Action not found: %s" % name)
             else:
                 return action_list[0]
         except Exception as e:
@@ -674,14 +692,40 @@ class Zapi(ZapiWrapper):
 
         """
         try:
-            discovery_check_list = self._zapi.dcheck.get({
-                'output': 'extend',
-                'filter': {'key_': [discovery_check_name]}
+            discovery_rule_name, dcheck_type = discovery_check_name.split(': ')
+            dcheck_type_to_number = {
+                'SSH': '0',
+                'LDAP': '1',
+                'SMTP': '2',
+                'FTP': '3',
+                'HTTP': '4',
+                'POP': '5',
+                'NNTP': '6',
+                'IMAP': '7',
+                'TCP': '8',
+                'Zabbix agent': '9',
+                'SNMPv1 agent': '10',
+                'SNMPv2 agent': '11',
+                'ICMP ping': '12',
+                'SNMPv3 agent': '13',
+                'HTTPS': '14',
+                'Telnet': '15'
+            }
+            if dcheck_type not in dcheck_type_to_number:
+                self._module.fail_json(msg="Discovery check type: %s does not exist" % dcheck_type)
+
+            discovery_rule_list = self._zapi.drule.get({
+                'output': ['dchecks'],
+                'filter': {'name': [discovery_rule_name]},
+                'selectDChecks': 'extend'
             })
-            if len(discovery_check_list) < 1:
+            if len(discovery_rule_list) < 1:
                 self._module.fail_json(msg="Discovery check not found: %s" % discovery_check_name)
-            else:
-                return discovery_check_list[0]
+
+            for dcheck in discovery_rule_list[0]['dchecks']:
+                if dcheck_type_to_number[dcheck_type] == dcheck['type']:
+                    return dcheck
+            self._module.fail_json(msg="Discovery check not found: %s" % discovery_check_name)
         except Exception as e:
             self._module.fail_json(msg="Failed to get discovery check '%s': %s" % (discovery_check_name, e))
 
@@ -747,9 +791,13 @@ class Zapi(ZapiWrapper):
 
         """
         try:
+            if LooseVersion(self._zbx_api_version) >= LooseVersion('5.4'):
+                filter = {'username': [user_name]}
+            else:
+                filter = {'alias': [user_name]}
             user_list = self._zapi.user.get({
                 'output': 'extend',
-                'filter': {'alias': [user_name]}
+                'filter': filter,
             })
             if len(user_list) < 1:
                 self._module.fail_json(msg="User not found: %s" % user_name)
@@ -806,9 +854,9 @@ class Zapi(ZapiWrapper):
             self._module.fail_json(msg="Failed to get script '%s': %s" % (script_name, e))
 
 
-class Action(ZabbixBase):
-    def __init__(self, module, zbx=None, zapi_wrapper=None):
-        super(Action, self).__init__(module, zbx, zapi_wrapper)
+class Action(Zapi):
+    def __init__(self, module, zbx=None):
+        super(Action, self).__init__(module, zbx)
         self.existing_data = None
 
     def _construct_parameters(self, **kwargs):
@@ -823,7 +871,7 @@ class Action(ZabbixBase):
 
         _params = {
             'name': kwargs['name'],
-            'eventsource': to_numeric_value([
+            'eventsource': zabbix_utils.helper_to_numeric_value([
                 'trigger',
                 'discovery',
                 'auto_registration',
@@ -839,7 +887,7 @@ class Action(ZabbixBase):
             'operations': kwargs['operations'],
             'recovery_operations': kwargs.get('recovery_operations'),
             'acknowledge_operations': kwargs.get('acknowledge_operations'),
-            'status': to_numeric_value([
+            'status': zabbix_utils.helper_to_numeric_value([
                 'enabled',
                 'disabled'], kwargs['status'])
         }
@@ -863,6 +911,30 @@ class Action(ZabbixBase):
             _params.pop('ack_longdata', None)
             _params.pop('ack_shortdata', None)
 
+        if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0'):
+            _params['update_operations'] = kwargs.get('update_operations')
+            if 'update_operations' in _params and not isinstance(_params.get('update_operations', None), type(None)):
+                _params.pop('acknowledge_operations', None)
+            elif isinstance(_params.get('acknowledge_operations', None), list):
+                _params['update_operations'] = _params.pop('acknowledge_operations', [])
+            else:
+                _params['update_operations'] = []
+                _params.pop('acknowledge_operations', None)
+
+            if 'esc_period' in _params and isinstance(_params.get('esc_period', None), type(None)):
+                _params.pop('esc_period')
+
+            if 'recovery_operations' in _params:
+                if isinstance(_params.get('recovery_operations', None), type(None)) or len(_params.get('recovery_operations', [])) == 0:
+                    _params.pop('recovery_operations')
+
+            if 'update_operations' in _params:
+                if isinstance(_params.get('update_operations', None), type(None)) or len(_params.get('update_operations', [])) == 0:
+                    _params.pop('update_operations')
+
+            if _params['eventsource'] not in [0, 3]:
+                _params.pop('esc_period')
+
         return _params
 
     def check_difference(self, **kwargs):
@@ -874,10 +946,10 @@ class Action(ZabbixBase):
         Returns:
             dict: dictionary of differences
         """
-        existing_action = convert_unicode_to_str(self._zapi_wrapper.check_if_action_exists(kwargs['name'])[0])
-        parameters = convert_unicode_to_str(self._construct_parameters(**kwargs))
+        existing_action = zabbix_utils.helper_convert_unicode_to_str(self.check_if_action_exists(kwargs['name'])[0])
+        parameters = zabbix_utils.helper_convert_unicode_to_str(self._construct_parameters(**kwargs))
         change_parameters = {}
-        _diff = cleanup_data(compare_dictionaries(parameters, existing_action, change_parameters))
+        _diff = zabbix_utils.helper_cleanup_data(zabbix_utils.helper_compare_dictionaries(parameters, existing_action, change_parameters))
         return _diff
 
     def update_action(self, **kwargs):
@@ -943,7 +1015,7 @@ class Operations(Zapi):
             str: constructed operation
         """
         try:
-            return to_numeric_value([
+            return zabbix_utils.helper_to_numeric_value([
                 "send_message",
                 "remote_command",
                 "add_host",
@@ -1020,31 +1092,42 @@ class Operations(Zapi):
             list: constructed operation command
         """
         try:
-            return {
-                'type': to_numeric_value([
-                    'custom_script',
-                    'ipmi',
-                    'ssh',
-                    'telnet',
-                    'global_script'], operation.get('command_type', 'custom_script')),
-                'command': operation.get('command'),
-                'execute_on': to_numeric_value([
-                    'agent',
-                    'server',
-                    'proxy'], operation.get('execute_on', 'server')),
-                'scriptid': self._zapi_wrapper.get_script_by_script_name(
-                    operation.get('script_name')
-                ).get('scriptid'),
-                'authtype': to_numeric_value([
-                    'password',
-                    'public_key'
-                ], operation.get('ssh_auth_type')),
-                'privatekey': operation.get('ssh_privatekey_file'),
-                'publickey': operation.get('ssh_publickey_file'),
-                'username': operation.get('username'),
-                'password': operation.get('password'),
-                'port': operation.get('port')
-            }
+            if LooseVersion(self._zbx_api_version) < LooseVersion('6.0'):
+                opcommand = {
+                    'type': zabbix_utils.helper_to_numeric_value([
+                        'custom_script',
+                        'ipmi',
+                        'ssh',
+                        'telnet',
+                        'global_script'], operation.get('command_type', 'custom_script')),
+                    'command': operation.get('command'),
+                    'execute_on': zabbix_utils.helper_to_numeric_value([
+                        'agent',
+                        'server',
+                        'proxy'], operation.get('execute_on', 'server')),
+                    'scriptid': self._zapi_wrapper.get_script_by_script_name(
+                        operation.get('script_name')
+                    ).get('scriptid'),
+                    'authtype': zabbix_utils.helper_to_numeric_value([
+                        'password',
+                        'public_key'
+                    ], operation.get('ssh_auth_type')),
+                    'privatekey': operation.get('ssh_privatekey_file'),
+                    'publickey': operation.get('ssh_publickey_file'),
+                    'username': operation.get('username'),
+                    'password': operation.get('password'),
+                    'port': operation.get('port')
+                }
+            else:
+                # In 6.0 opcommand is an opbject with just one key 'scriptid'
+                opcommand = {
+                    'scriptid': self._zapi_wrapper.get_script_by_script_name(
+                        operation.get('script_name')
+                    ).get('scriptid')
+                }
+
+            return opcommand
+
         except Exception as e:
             self._module.fail_json(msg="Failed to construct operation command. The error was: %s" % e)
 
@@ -1075,7 +1158,7 @@ class Operations(Zapi):
         if operation.get('run_on_groups') is None:
             return None
         return [{
-            'groupid': self._zapi_wrapper.get_hostgroup_by_hostgroup_name(_group)['hostid']
+            'groupid': self._zapi_wrapper.get_hostgroup_by_hostgroup_name(_group)['groupid']
         } for _group in operation.get('run_on_groups')]
 
     def _construct_opgroup(self, operation):
@@ -1114,7 +1197,7 @@ class Operations(Zapi):
             dict: constructed operation inventory
         """
         return {
-            'inventory_mode': to_numeric_value([
+            'inventory_mode': zabbix_utils.helper_to_numeric_value([
                 'manual',
                 'automatic'
             ], operation.get('inventory'))
@@ -1142,7 +1225,7 @@ class Operations(Zapi):
             }]
         return []
 
-    def construct_the_data(self, operations):
+    def construct_the_data(self, operations, event_source):
         """Construct the operation data using helper methods.
 
         Args:
@@ -1161,34 +1244,47 @@ class Operations(Zapi):
                 'esc_step_to': op.get('esc_step_to')
             }
             # Send Message type
-            if constructed_operation['operationtype'] == '0':
+            if constructed_operation['operationtype'] == 0:
                 constructed_operation['opmessage'] = self._construct_opmessage(op)
                 constructed_operation['opmessage_usr'] = self._construct_opmessage_usr(op)
                 constructed_operation['opmessage_grp'] = self._construct_opmessage_grp(op)
-                constructed_operation['opconditions'] = self._construct_opconditions(op)
+                if event_source == 'trigger':
+                    # opconditions valid only for 'trigger' action
+                    constructed_operation['opconditions'] = self._construct_opconditions(op)
 
             # Send Command type
-            if constructed_operation['operationtype'] == '1':
+            if constructed_operation['operationtype'] == 1:
                 constructed_operation['opcommand'] = self._construct_opcommand(op)
                 constructed_operation['opcommand_hst'] = self._construct_opcommand_hst(op)
                 constructed_operation['opcommand_grp'] = self._construct_opcommand_grp(op)
-                constructed_operation['opconditions'] = self._construct_opconditions(op)
+                if event_source == 'trigger':
+                    # opconditions valid only for 'trigger' action
+                    constructed_operation['opconditions'] = self._construct_opconditions(op)
 
             # Add to/Remove from host group
-            if constructed_operation['operationtype'] in ('4', '5'):
+            if constructed_operation['operationtype'] in (4, 5):
                 constructed_operation['opgroup'] = self._construct_opgroup(op)
 
             # Link/Unlink template
-            if constructed_operation['operationtype'] in ('6', '7'):
+            if constructed_operation['operationtype'] in (6, 7):
                 constructed_operation['optemplate'] = self._construct_optemplate(op)
 
             # Set inventory mode
-            if constructed_operation['operationtype'] == '10':
+            if constructed_operation['operationtype'] == 10:
                 constructed_operation['opinventory'] = self._construct_opinventory(op)
+
+            # Remove escalation params when for event sources where they are not applicable
+            if event_source in ['trigger', 'internal']:
+                if isinstance(constructed_operation.get('esc_period'), type(None)):
+                    constructed_operation['esc_period'] = 0
+            else:
+                constructed_operation.pop('esc_period')
+                constructed_operation.pop('esc_step_from')
+                constructed_operation.pop('esc_step_to')
 
             constructed_data.append(constructed_operation)
 
-        return cleanup_data(constructed_data)
+        return zabbix_utils.helper_cleanup_data(constructed_data)
 
 
 class RecoveryOperations(Operations):
@@ -1205,7 +1301,7 @@ class RecoveryOperations(Operations):
             str: constructed operation type
         """
         try:
-            return to_numeric_value([
+            return zabbix_utils.helper_to_numeric_value([
                 "send_message",
                 "remote_command",
                 None,
@@ -1239,20 +1335,25 @@ class RecoveryOperations(Operations):
             }
 
             # Send Message type
-            if constructed_operation['operationtype'] in ('0', '11'):
+            if constructed_operation['operationtype'] == 0:
                 constructed_operation['opmessage'] = self._construct_opmessage(op)
                 constructed_operation['opmessage_usr'] = self._construct_opmessage_usr(op)
                 constructed_operation['opmessage_grp'] = self._construct_opmessage_grp(op)
 
+            if constructed_operation['operationtype'] == 11:
+                constructed_operation['opmessage'] = self._construct_opmessage(op)
+                if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0'):
+                    constructed_operation['opmessage'].pop('mediatypeid')
+
             # Send Command type
-            if constructed_operation['operationtype'] == '1':
+            if constructed_operation['operationtype'] == 1:
                 constructed_operation['opcommand'] = self._construct_opcommand(op)
                 constructed_operation['opcommand_hst'] = self._construct_opcommand_hst(op)
                 constructed_operation['opcommand_grp'] = self._construct_opcommand_grp(op)
 
             constructed_data.append(constructed_operation)
 
-        return cleanup_data(constructed_data)
+        return zabbix_utils.helper_cleanup_data(constructed_data)
 
 
 class AcknowledgeOperations(Operations):
@@ -1269,7 +1370,7 @@ class AcknowledgeOperations(Operations):
             str: constructed operation type
         """
         try:
-            return to_numeric_value([
+            return zabbix_utils.helper_to_numeric_value([
                 "send_message",
                 "remote_command",
                 None,
@@ -1304,20 +1405,25 @@ class AcknowledgeOperations(Operations):
             }
 
             # Send Message type
-            if constructed_operation['operationtype'] in ('0', '11'):
+            if constructed_operation['operationtype'] == 0:
                 constructed_operation['opmessage'] = self._construct_opmessage(op)
                 constructed_operation['opmessage_usr'] = self._construct_opmessage_usr(op)
                 constructed_operation['opmessage_grp'] = self._construct_opmessage_grp(op)
 
+            if constructed_operation['operationtype'] == 12:
+                constructed_operation['opmessage'] = self._construct_opmessage(op)
+                if LooseVersion(self._zbx_api_version) >= LooseVersion('6.0'):
+                    constructed_operation['opmessage'].pop('mediatypeid')
+
             # Send Command type
-            if constructed_operation['operationtype'] == '1':
+            if constructed_operation['operationtype'] == 1:
                 constructed_operation['opcommand'] = self._construct_opcommand(op)
                 constructed_operation['opcommand_hst'] = self._construct_opcommand_hst(op)
                 constructed_operation['opcommand_grp'] = self._construct_opcommand_grp(op)
 
             constructed_data.append(constructed_operation)
 
-        return cleanup_data(constructed_data)
+        return zabbix_utils.helper_cleanup_data(constructed_data)
 
 
 class Filter(Zapi):
@@ -1378,8 +1484,13 @@ class Filter(Zapi):
         Returns:
             str: constructed condition type data
         """
+        # application is disabled is disabled for condition type since 5.4 version.
+        if (LooseVersion(self._zbx_api_version) >= LooseVersion('5.4')
+                and _condition['type'] == 'application'):
+            self._module.fail_json(msg="'%s' is disabled for condition type since 5.4 version." % _condition['type'])
+
         try:
-            return to_numeric_value([
+            return zabbix_utils.helper_to_numeric_value([
                 "host_group",
                 "host",
                 "trigger",
@@ -1421,14 +1532,14 @@ class Filter(Zapi):
             str: constructed operator
         """
         try:
-            return to_numeric_value([
-                "=",
-                "<>",
-                "like",
-                "not like",
+            return zabbix_utils.helper_to_numeric_value([
+                ["equals", "="],
+                ["does not equal", "<>"],
+                ["contains", "like"],
+                ["does not contain", "not like"],
                 "in",
-                ">=",
-                "<=",
+                ["is greater than or equals", ">="],
+                ["is less than or equals", "<="],
                 "not in",
                 "matches",
                 "does not match",
@@ -1450,18 +1561,18 @@ class Filter(Zapi):
         """
         try:
             # Host group
-            if conditiontype == '0':
+            if conditiontype == 0:
                 return self._zapi_wrapper.get_hostgroup_by_hostgroup_name(value)['groupid']
             # Host
-            if conditiontype == '1':
+            if conditiontype == 1:
                 return self._zapi_wrapper.get_host_by_host_name(value)['hostid']
             # Trigger
-            if conditiontype == '2':
+            if conditiontype == 2:
                 return self._zapi_wrapper.get_trigger_by_trigger_name(value)['triggerid']
             # Trigger name: return as is
             # Trigger severity
-            if conditiontype == '4':
-                return to_numeric_value([
+            if conditiontype == 4:
+                return zabbix_utils.helper_to_numeric_value([
                     "not classified",
                     "information",
                     "warning",
@@ -1471,16 +1582,16 @@ class Filter(Zapi):
                 )
 
             # Trigger value
-            if conditiontype == '5':
-                return to_numeric_value([
+            if conditiontype == 5:
+                return zabbix_utils.helper_to_numeric_value([
                     "ok",
                     "problem"], value or "ok"
                 )
             # Time period: return as is
             # Host IP: return as is
             # Discovered service type
-            if conditiontype == '8':
-                return to_numeric_value([
+            if conditiontype == 8:
+                return zabbix_utils.helper_to_numeric_value([
                     "SSH",
                     "LDAP",
                     "SMTP",
@@ -1500,29 +1611,36 @@ class Filter(Zapi):
                 )
             # Discovered service port: return as is
             # Discovery status
-            if conditiontype == '10':
-                return to_numeric_value([
+            if conditiontype == 10:
+                return zabbix_utils.helper_to_numeric_value([
                     "up",
                     "down",
                     "discovered",
                     "lost"], value
                 )
-            if conditiontype == '13':
+            if conditiontype == 13:
                 return self._zapi_wrapper.get_template_by_template_name(value)['templateid']
-            if conditiontype == '18':
+            if LooseVersion(self._zapi_wrapper._zbx_api_version) >= LooseVersion('6.0'):
+                # maintenance_status
+                if conditiontype == 16:
+                    return zabbix_utils.helper_to_numeric_value([
+                        "Yes",
+                        "No"], value
+                    )
+            if conditiontype == 18:
                 return self._zapi_wrapper.get_discovery_rule_by_discovery_rule_name(value)['druleid']
-            if conditiontype == '19':
+            if conditiontype == 19:
                 return self._zapi_wrapper.get_discovery_check_by_discovery_check_name(value)['dcheckid']
-            if conditiontype == '20':
+            if conditiontype == 20:
                 return self._zapi_wrapper.get_proxy_by_proxy_name(value)['proxyid']
-            if conditiontype == '21':
-                return to_numeric_value([
+            if conditiontype == 21:
+                return zabbix_utils.helper_to_numeric_value([
                     "pchldrfor0",
                     "host",
                     "service"], value
                 )
-            if conditiontype == '23':
-                return to_numeric_value([
+            if conditiontype == 23:
+                return zabbix_utils.helper_to_numeric_value([
                     "item in not supported state",
                     "item in normal state",
                     "LLD rule in not supported state",
@@ -1570,124 +1688,7 @@ class Filter(Zapi):
         )
         constructed_data['evaltype'] = _constructed_evaltype['evaltype']
         constructed_data['formula'] = _constructed_evaltype['formula']
-        return cleanup_data(constructed_data)
-
-
-def convert_unicode_to_str(data):
-    """Converts unicode objects to strings in dictionary
-    args:
-        data: unicode object
-
-    Returns:
-        dict: strings in dictionary
-    """
-    if isinstance(data, dict):
-        return dict(map(convert_unicode_to_str, data.items()))
-    elif isinstance(data, (list, tuple, set)):
-        return type(data)(map(convert_unicode_to_str, data))
-    elif data is None:
-        return data
-    else:
-        return str(data)
-
-
-def to_numeric_value(strs, value):
-    """Converts string values to integers
-    Args:
-        value: string value
-
-    Returns:
-        int: converted integer
-    """
-    if value is None:
-        return value
-
-    strs = [s.lower() if isinstance(s, str) else s for s in strs]
-    value = value.lower()
-    tmp_dict = dict(zip(strs, list(range(len(strs)))))
-    return str(tmp_dict[value])
-
-
-def compare_lists(l1, l2, diff_dict):
-    """
-    Compares l1 and l2 lists and adds the items that are different
-    to the diff_dict dictionary.
-    Used in recursion with compare_dictionaries() function.
-    Args:
-        l1: first list to compare
-        l2: second list to compare
-        diff_dict: dictionary to store the difference
-
-    Returns:
-        dict: items that are different
-    """
-    if len(l1) != len(l2):
-        diff_dict.append(l1)
-        return diff_dict
-    for i, item in enumerate(l1):
-        if isinstance(item, dict):
-            diff_dict.insert(i, {})
-            diff_dict[i] = compare_dictionaries(item, l2[i], diff_dict[i])
-        else:
-            if item != l2[i]:
-                diff_dict.append(item)
-    while {} in diff_dict:
-        diff_dict.remove({})
-    return diff_dict
-
-
-def compare_dictionaries(d1, d2, diff_dict):
-    """
-    Compares d1 and d2 dictionaries and adds the items that are different
-    to the diff_dict dictionary.
-    Used in recursion with compare_lists() function.
-    Args:
-        d1: first dictionary to compare
-        d2: second dictionary to compare
-        diff_dict: dictionary to store the difference
-
-    Returns:
-        dict: items that are different
-    """
-    for k, v in d1.items():
-        if k not in d2:
-            diff_dict[k] = v
-            continue
-        if isinstance(v, dict):
-            diff_dict[k] = {}
-            compare_dictionaries(v, d2[k], diff_dict[k])
-            if diff_dict[k] == {}:
-                del diff_dict[k]
-            else:
-                diff_dict[k] = v
-        elif isinstance(v, list):
-            diff_dict[k] = []
-            compare_lists(v, d2[k], diff_dict[k])
-            if diff_dict[k] == []:
-                del diff_dict[k]
-            else:
-                diff_dict[k] = v
-        else:
-            if v != d2[k]:
-                diff_dict[k] = v
-    return diff_dict
-
-
-def cleanup_data(obj):
-    """Removes the None values from the object and returns the object
-    Args:
-        obj: object to cleanup
-
-    Returns:
-       object: cleaned object
-    """
-    if isinstance(obj, (list, tuple, set)):
-        return type(obj)(cleanup_data(x) for x in obj if x is not None)
-    elif isinstance(obj, dict):
-        return type(obj)((cleanup_data(k), cleanup_data(v))
-                         for k, v in obj.items() if k is not None and v is not None)
-    else:
-        return obj
+        return zabbix_utils.helper_cleanup_data(constructed_data)
 
 
 def main():
@@ -1717,7 +1718,7 @@ def main():
                 formulaid=dict(type='str', required=False),
                 operator=dict(type='str', required=True),
                 type=dict(type='str', required=True),
-                value=dict(type='str', required=True),
+                value=dict(type='str', required=False),
                 value2=dict(type='str', required=False)
             ),
             required_if=[
@@ -1958,12 +1959,17 @@ def main():
         argument_spec=argument_spec,
         required_if=[
             ['state', 'present', [
-                'esc_period',
                 'event_source'
             ]]
         ],
         supports_check_mode=True
     )
+
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
 
     name = module.params['name']
     esc_period = module.params['esc_period']
@@ -1985,7 +1991,7 @@ def main():
     acknowledge_operations = module.params['acknowledge_operations']
 
     zapi_wrapper = Zapi(module)
-    action = Action(module, zapi_wrapper=zapi_wrapper)
+    action = Action(module)
 
     action_exists = zapi_wrapper.check_if_action_exists(name)
     ops = Operations(module, zapi_wrapper)
@@ -1999,7 +2005,7 @@ def main():
             result = action.delete_action(action_id)
             module.exit_json(changed=True, msg="Action Deleted: %s, ID: %s" % (name, result))
         else:
-            difference = action.check_difference(
+            kwargs = dict(
                 action_id=action_id,
                 name=name,
                 event_source=event_source,
@@ -2012,11 +2018,17 @@ def main():
                 recovery_default_subject=recovery_default_subject,
                 acknowledge_default_message=acknowledge_default_message,
                 acknowledge_default_subject=acknowledge_default_subject,
-                operations=ops.construct_the_data(operations),
+                operations=ops.construct_the_data(operations, event_source),
                 recovery_operations=recovery_ops.construct_the_data(recovery_operations),
-                acknowledge_operations=acknowledge_ops.construct_the_data(acknowledge_operations),
                 conditions=fltr.construct_the_data(eval_type, formula, conditions)
             )
+
+            if LooseVersion(zapi_wrapper._zbx_api_version) >= LooseVersion('6.0'):
+                kwargs[argument_spec['acknowledge_operations']['aliases'][0]] = acknowledge_ops.construct_the_data(acknowledge_operations)
+            else:
+                kwargs['acknowledge_operations'] = acknowledge_ops.construct_the_data(acknowledge_operations)
+
+            difference = action.check_difference(**kwargs)
 
             if difference == {}:
                 module.exit_json(changed=False, msg="Action is up to date: %s" % (name))
@@ -2030,7 +2042,7 @@ def main():
         if state == "absent":
             module.exit_json(changed=False)
         else:
-            action_id = action.add_action(
+            kwargs = dict(
                 name=name,
                 event_source=event_source,
                 esc_period=esc_period,
@@ -2042,11 +2054,17 @@ def main():
                 recovery_default_subject=recovery_default_subject,
                 acknowledge_default_message=acknowledge_default_message,
                 acknowledge_default_subject=acknowledge_default_subject,
-                operations=ops.construct_the_data(operations),
+                operations=ops.construct_the_data(operations, event_source),
                 recovery_operations=recovery_ops.construct_the_data(recovery_operations),
-                acknowledge_operations=acknowledge_ops.construct_the_data(acknowledge_operations),
                 conditions=fltr.construct_the_data(eval_type, formula, conditions)
             )
+
+            if LooseVersion(zapi_wrapper._zbx_api_version) >= LooseVersion('6.0'):
+                kwargs[argument_spec['acknowledge_operations']['aliases'][0]] = acknowledge_ops.construct_the_data(acknowledge_operations)
+            else:
+                kwargs['acknowledge_operations'] = acknowledge_ops.construct_the_data(acknowledge_operations)
+
+            action_id = action.add_action(**kwargs)
             module.exit_json(changed=True, msg="Action created: %s, ID: %s" % (name, action_id))
 
 

@@ -24,17 +24,17 @@
       community.postgresql.postgresql_user:
         db: "{{ zabbix_server_dbname }}"
         name: "{{ zabbix_server_dbuser }}"
-        password: "md5{{ (zabbix_server_dbpassword + zabbix_server_dbuser)|hash('md5') }}"
+        password: "{{ ('md5' + (zabbix_server_dbpassword + zabbix_server_dbuser)|hash('md5')) if zabbix_server_dbpassword_hash_method == 'md5' else zabbix_server_dbpassword }}"
         port: "{{ zabbix_server_dbport }}"
         priv: ALL
         state: present
-        encrypted: yes
+        encrypted: true
     - name: "PostgreSQL | Delegated | Create timescaledb extension"
       community.postgresql.postgresql_ext:
         db: "{{ zabbix_server_dbname }}"
         name: timescaledb
       when: zabbix_database_timescaledb
-  become: yes
+  become: true
   become_user: postgres
   delegate_to: "{{ delegated_dbhost }}"
   when:
@@ -62,11 +62,11 @@
         login_password: "{{ zabbix_server_pgsql_login_password | default(omit) }}"
         db: "{{ zabbix_server_dbname }}"
         name: "{{ zabbix_server_dbuser }}"
-        password: "md5{{ (zabbix_server_dbpassword + zabbix_server_dbuser)|hash('md5') }}"
+        password: "{{ ('md5' + (zabbix_server_dbpassword + zabbix_server_dbuser)|hash('md5')) if zabbix_server_dbpassword_hash_method == 'md5' else zabbix_server_dbpassword }}"
         port: "{{ zabbix_server_dbport }}"
         priv: ALL
         state: present
-        encrypted: yes
+        encrypted: true
     - name: "PostgreSQL | Remote | Create timescaledb extension"
       community.postgresql.postgresql_ext:
         login_host: "{{ zabbix_server_pgsql_login_host | default(omit) }}"
@@ -83,18 +83,31 @@
     - zabbix-server
     - database
 
+- name: Check if warn parameter can be used for shell module
+  set_fact:
+    produce_warn: False
+  when: ansible_version.full is version("2.14", "<")
+
 - name: "PostgreSQL | Create schema"
-  shell: >
-    cd {{ datafiles_path }} &&
-    if [ -f create.sql.gz ]; then gunzip create.sql.gz ; fi &&
-    psql -h '{{ zabbix_server_dbhost }}'
-    -U '{{ zabbix_server_dbuser }}'
-    -d '{{ zabbix_server_dbname }}'
+  shell: |
+    set -euxo pipefail
+    FILE={{ 'create.sql' if zabbix_version is version('6.0', '<') else 'server.sql' }}
+    cd {{ datafiles_path }}
+    if [ -f ${FILE}.gz ]
+      then zcat ${FILE}.gz > /tmp/create.sql
+    else
+      cp ${FILE} /tmp/create.sql
+    fi
+    cat /tmp/create.sql | psql -h '{{ zabbix_server_dbhost }}' \
+    -U '{{ zabbix_server_dbuser }}' \
+    -d '{{ zabbix_server_dbname }}' \
     -p '{{ zabbix_server_dbport }}'
-    -f create.sql && touch /etc/zabbix/schema.done
+    touch /etc/zabbix/schema.done
+    rm -f /tmp/create.sql
   args:
     creates: /etc/zabbix/schema.done
-    warn: no
+    executable: /bin/bash
+    warn: "{{ produce_warn | default(omit) }}"
   environment:
     PGPASSWORD: "{{ zabbix_server_dbpassword }}"
   when:
@@ -105,17 +118,20 @@
     - database
 
 - name: "PostgreSQL | Create TimescaleDB hypertables"
-  shell: >
+  shell: |
+    set -euxo pipefail
     cd {{ datafiles_path }} &&
-    if [ -f timescaledb.sql.gz ]; then gunzip timescaledb.sql.gz ; fi &&
-    psql -h '{{ zabbix_server_dbhost }}'
-    -U '{{ zabbix_server_dbuser }}'
-    -d '{{ zabbix_server_dbname }}'
+    if [ -f timescaledb.sql.gz ]; then zcat timescaledb.sql.gz > /etc/timescaledb.sql ; else cp -p timescaledb.sql /etc/timescaledb.sql ; fi
+    cat /etc/timescaledb.sql | psql -h '{{ zabbix_server_dbhost }}' \
+    -U '{{ zabbix_server_dbuser }}' \
+    -d '{{ zabbix_server_dbname }}' \
     -p '{{ zabbix_server_dbport }}'
-    -f timescaledb.sql && touch /etc/zabbix/timescaledb.done
+    touch /etc/zabbix/timescaledb.done
+    rm -f /tmp/timescaledb.sql
   args:
     creates: /etc/zabbix/timescaledb.done
-    warn: no
+    executable: /bin/bash
+    warn: "{{ produce_warn | default(omit) }}"
   environment:
     PGPASSWORD: "{{ zabbix_server_dbpassword }}"
   when:
@@ -128,7 +144,7 @@
 - name: "Get complete path"
   shell: ls -d {{ datafiles_path }}
   register: datafiles_path_full
-  changed_when: False
+  changed_when: false
   when:
     - (zabbix_version is version('3.0', '<') and zabbix_database_sqlload) or (zabbix_repo == "epel" and zabbix_database_sqlload)
   tags:
@@ -150,17 +166,20 @@
     - create_dir_or_not.stat.exists
 
 - name: "PostgreSQL | Importing schema file"
-  shell: >
-    cd {{ datafiles_path }} &&
-    if [ -f schema.sql.gz ]; then gunzip schema.sql.gz ; fi &&
-    psql -h '{{ zabbix_server_dbhost }}'
-    -U '{{ zabbix_server_dbuser }}'
-    -d '{{ zabbix_server_dbname }}'
+  shell: |
+    set -euxo pipefail
+    cd {{ datafiles_path }}
+    if [ -f schema.sql.gz ]; then zcat schema.sql.gz > /tmp/schema.sql ; else cp -p schema.sql /tmp/schema.sql ;fi
+    cat /tmp/schema.sql | psql -h '{{ zabbix_server_dbhost }}' \
+    -U '{{ zabbix_server_dbuser }}' \
+    -d '{{ zabbix_server_dbname }}' \
     -p '{{ zabbix_server_dbport }}'
-    -f schema.sql && touch /etc/zabbix/schema.done
+    touch /etc/zabbix/schema.done
+    rm -f /etc/schema.sql
   args:
     creates: /etc/zabbix/schema.done
-    warn: no
+    executable: /bin/bash
+    warn: "{{ produce_warn | default(omit) }}"
   environment:
     PGPASSWORD: "{{ zabbix_server_dbpassword }}"
   when:
@@ -179,7 +198,7 @@
     -f images.sql && touch /etc/zabbix/images.done
   args:
     creates: /etc/zabbix/images.done
-    warn: no
+    warn: "{{ produce_warn | default(omit) }}"
   environment:
     PGPASSWORD: "{{ zabbix_server_dbpassword }}"
   when: (zabbix_version is version('3.0', '<') and zabbix_database_sqlload) or (zabbix_repo == "epel" and zabbix_database_sqlload)
@@ -197,7 +216,7 @@
     -f data.sql && touch /etc/zabbix/data.done
   args:
     creates: /etc/zabbix/data.done
-    warn: no
+    warn: "{{ produce_warn | default(omit) }}"
   environment:
     PGPASSWORD: "{{ zabbix_server_dbpassword }}"
   when: (zabbix_version is version('3.0', '<') and zabbix_database_sqlload) or (zabbix_repo == "epel" and zabbix_database_sqlload)

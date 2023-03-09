@@ -15,6 +15,7 @@ try:
     from zabbix_api import ZabbixAPI, Already_Exists, ZabbixAPIException
 
     HAS_ZABBIX_API = True
+    ZBX_IMP_ERR = Exception()
 except ImportError:
     ZBX_IMP_ERR = traceback.format_exc()
     HAS_ZABBIX_API = False
@@ -35,16 +36,22 @@ class ZapiWrapper(object):
             self._zapi = zbx
         else:
             server_url = module.params['server_url']
-            http_login_user = module.params['http_login_user']
-            http_login_password = module.params['http_login_password']
-            validate_certs = module.params['validate_certs']
-            timeout = module.params['timeout']
-            self._zapi = ZabbixAPI(server_url, timeout=timeout, user=http_login_user, passwd=http_login_password,
-                                   validate_certs=validate_certs)
+
+            if module.params['validate_certs'] is None:
+                validate_certs = True
+            else:
+                validate_certs = module.params['validate_certs']
+
+            if module.params['timeout'] is None:
+                timeout = 10
+            else:
+                timeout = module.params['timeout']
+
+            self._zapi = ZabbixAPI(server_url, timeout=timeout, validate_certs=validate_certs)
 
         self.login()
 
-        self._zbx_api_version = self._zapi.api_version()[:5]
+        self._zbx_api_version = self._zapi.api_version()
 
     def login(self):
         # check if api already logged in

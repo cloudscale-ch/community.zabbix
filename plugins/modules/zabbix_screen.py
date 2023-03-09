@@ -20,7 +20,7 @@ author:
     - "Harrison Gu (@harrisongu)"
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
+    - "Zabbix <= 5.2"
 options:
     screens:
         description:
@@ -83,16 +83,37 @@ extends_documentation_fragment:
 
 notes:
     - Too many concurrent updates to the same screen may cause Zabbix to return errors, see examples for a workaround if needed.
+    - Screens where removed from Zabbix with Version 5.4
 '''
 
 EXAMPLES = r'''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
+# Screens where removed from Zabbix with Version 5.4
+
 # Create/update a screen.
 - name: Create a new screen or update an existing screen's items 5 in a row
-  local_action:
-    module: community.zabbix.zabbix_screen
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_screen:
     screens:
       - screen_name: ExampleScreen1
         host_group: Example group1
@@ -106,11 +127,7 @@ EXAMPLES = r'''
 
 # Create/update multi-screen
 - name: Create two of new screens or update the existing screens' items
-  local_action:
-    module: community.zabbix.zabbix_screen
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_screen:
     screens:
       - screen_name: ExampleScreen1
         host_group: Example group1
@@ -131,11 +148,7 @@ EXAMPLES = r'''
 
 # Limit the Zabbix screen creations to one host since Zabbix can return an error when doing concurrent updates
 - name: Create a new screen or update an existing screen's items
-  local_action:
-    module: community.zabbix.zabbix_screen
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_screen:
     state: present
     screens:
       - screen_name: ExampleScreen
@@ -150,11 +163,7 @@ EXAMPLES = r'''
 
 # Create/update using multiple hosts_groups. Hosts NOT present in all listed host_groups will be skipped.
 - name: Create new screen or update the existing screen's items for hosts in both given groups
-  local_action:
-    module: community.zabbix.zabbix_screen
-    server_url: http://monitor.example.com
-    login_user: username
-    login_password: password
+  community.zabbix.zabbix_screen:
     screens:
       - screen_name: ExampleScreen1
         host_group:
@@ -173,6 +182,8 @@ from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
 from ansible_collections.community.zabbix.plugins.module_utils.wrappers import ScreenItem
+from ansible.module_utils.compat.version import LooseVersion
+
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
@@ -369,9 +380,20 @@ def main():
         supports_check_mode=True
     )
 
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
+
     screens = module.params['screens']
 
     screen = Screen(module)
+    if LooseVersion(screen._zbx_api_version) >= LooseVersion('5.4'):
+        module.fail_json(msg="Zabbix 5.4 removed the Screens feature see (%s)." % (
+            "https://www.zabbix.com/documentation/current/en/manual/api/changes_5.2_-_5.4"
+        ))
+
     created_screens = []
     changed_screens = []
     deleted_screens = []

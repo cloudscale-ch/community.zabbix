@@ -22,7 +22,7 @@ description:
     - "The following extra node attributes are supported:
         C(zbx_host) contains name of the host in Zabbix. Use this if desired type of map element is C(host).
         C(zbx_group) contains name of the host group in Zabbix. Use this if desired type of map element is C(host group).
-        C(zbx_map) contains name of the map in Zabbix. Use this if desired type of map element is C(map).
+        C(zbx_sysmap) contains name of the map in Zabbix. Use this if desired type of map element is C(map).
         C(zbx_label) contains label of map element.
         C(zbx_image) contains name of the image used to display the element in default state.
         C(zbx_image_disabled) contains name of the image used to display disabled map element.
@@ -38,7 +38,6 @@ description:
         C(zbx_trigger_draw_style) contains indicator draw style. Possible values are the same as for C(zbx_draw_style)."
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
     - pydotplus
     - webcolors
     - Pillow
@@ -117,6 +116,28 @@ extends_documentation_fragment:
 RETURN = r''' # '''
 
 EXAMPLES = r'''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 ###
 ### Example inventory:
 # [web]
@@ -160,9 +181,6 @@ EXAMPLES = r'''
 ### Create Zabbix map "Demo Map" made of template 'map.j2'
 - name: Create Zabbix map
   community.zabbix.zabbix_map:
-    server_url: http://zabbix.example.com
-    login_user: username
-    login_password: password
     name: Demo map
     state: present
     data: "{{ lookup('template', 'map.j2') }}"
@@ -180,16 +198,19 @@ import traceback
 
 from io import BytesIO
 from operator import itemgetter
-from distutils.version import LooseVersion
+
 from ansible.module_utils.basic import AnsibleModule, missing_required_lib
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
+from ansible.module_utils.compat.version import LooseVersion
+
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
 try:
     import pydotplus
     HAS_PYDOTPLUS = True
+    PYDOT_IMP_ERR = Exception()
 except ImportError:
     PYDOT_IMP_ERR = traceback.format_exc()
     HAS_PYDOTPLUS = False
@@ -197,6 +218,7 @@ except ImportError:
 try:
     import webcolors
     HAS_WEBCOLORS = True
+    WEBCOLORS_IMP_ERR = Exception()
 except ImportError:
     WEBCOLORS_IMP_ERR = traceback.format_exc()
     HAS_WEBCOLORS = False
@@ -204,6 +226,7 @@ except ImportError:
 try:
     from PIL import Image
     HAS_PIL = True
+    PIL_IMP_ERR = Exception()
 except ImportError:
     PIL_IMP_ERR = traceback.format_exc()
     HAS_PIL = False
@@ -757,6 +780,12 @@ def main():
         argument_spec=argument_spec,
         supports_check_mode=True
     )
+
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
 
     if not HAS_PYDOTPLUS:
         module.fail_json(msg=missing_required_lib('pydotplus', url='https://pypi.org/project/pydotplus/'), exception=PYDOT_IMP_ERR)

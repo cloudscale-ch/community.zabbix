@@ -17,11 +17,13 @@ description:
     - This module allows you to search for Zabbix user entries.
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
 options:
-    alias:
+    username:
         description:
             - Name of the user alias in Zabbix.
+            - username is the unique identifier used and cannot be updated using this module.
+            - alias should be replaced with username
+        aliases: [ alias ]
         required: true
         type: str
 extends_documentation_fragment:
@@ -30,12 +32,31 @@ extends_documentation_fragment:
 '''
 
 EXAMPLES = '''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 - name: Get zabbix user info
   community.zabbix.zabbix_user_info:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: admin
-    login_password: secret
-    alias: example
+    username: example
 '''
 
 RETURN = '''
@@ -44,7 +65,7 @@ zabbix_user:
   returned: always
   type: dict
   sample: {
-  "alias": "example",
+  "username": "example",
   "attempt_clock": "0",
   "attempt_failed": "0",
   "attempt_ip": "",
@@ -87,18 +108,25 @@ zabbix_user:
 
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.compat.version import LooseVersion
 
 from ansible_collections.community.zabbix.plugins.module_utils.base import ZabbixBase
 import ansible_collections.community.zabbix.plugins.module_utils.helpers as zabbix_utils
 
 
 class User(ZabbixBase):
-    def get_user_by_user_alias(self, alias):
+    def get_user_by_user_username(self, username):
         zabbix_user = ""
         try:
-            zabbix_user = self._zapi.user.get({'output': 'extend', 'filter': {'alias': alias},
-                                               'getAccess': True, 'selectMedias': 'extend',
-                                               'selectUsrgrps': 'extend'})
+            data = {'output': 'extend', 'filter': {},
+                    'getAccess': True, 'selectMedias': 'extend',
+                    'selectUsrgrps': 'extend'}
+            if LooseVersion(self._zbx_api_version) >= LooseVersion('5.4'):
+                data['filter']['username'] = username
+            else:
+                data['filter']['alias'] = username
+
+            zabbix_user = self._zapi.user.get(data)
         except Exception as e:
             self._zapi.logout()
             self._module.fail_json(msg="Failed to get user information: %s" % e)
@@ -114,17 +142,23 @@ class User(ZabbixBase):
 def main():
     argument_spec = zabbix_utils.zabbix_common_argument_spec()
     argument_spec.update(dict(
-        alias=dict(type='str', required=True),
+        username=dict(type='str', required=True, aliases=['alias']),
     ))
     module = AnsibleModule(
         argument_spec=argument_spec,
         supports_check_mode=True
     )
 
-    alias = module.params['alias']
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
+
+    username = module.params['username']
 
     user = User(module)
-    zabbix_user = user.get_user_by_user_alias(alias)
+    zabbix_user = user.get_user_by_user_username(username)
     module.exit_json(changed=False, zabbix_user=zabbix_user)
 
 

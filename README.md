@@ -34,30 +34,35 @@ The collection includes a variety of Ansible content to help automate the manage
 Click on the name of a plugin or module to view that content's documentation:
 
   - **Inventory Sources**:
-    - [zabbix](scripts/inventory/zabbix.py) - Zabbix Inventory Script 
-	- [zabbix_inventory](plugins/inventory/zabbix_inventory.py) - Zabbix Ansible Inventory Plguin 
+    - [zabbix](scripts/inventory/zabbix.py) - Zabbix Inventory Script
+    - [zabbix_inventory](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_inventory_inventory.html) - Zabbix Ansible Inventory Plugin
   - **Modules**:
-    - [zabbix_action](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_action_module.html)
-    - [zabbix_group_info](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_group_info_module.html)
-    - [zabbix_discovery_rule](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_discovery_rule_module.html)
-    - [zabbix_globalmacro](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_globalmacro_module.html)
-    - [zabbix_group](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_group_module.html)
-    - [zabbix_host_events_info](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_host_events_info_module.html)
-    - [zabbix_host_info](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_host_info_module.html)
-    - [zabbix_hostmacro](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_hostmacro_module.html)
-    - [zabbix_host](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_host_module.html)
-    - [zabbix_maintenance](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_maintenance_module.html)
-    - [zabbix_map](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_map_module.html)
-    - [zabbix_mediatype](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_mediatype_module.html)
-    - [zabbix_proxy](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_proxy_module.html)
-    - [zabbix_screen](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_screen_module.html)
-    - [zabbix_service](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_service_module.html)
-    - [zabbix_template_info](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_template_info_module.html)
-    - [zabbix_template](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_template_module.html)
-    - [zabbix_user_info](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_user_info_module.html)
-    - [zabbix_user](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_user_module.html)
-    - [zabbix_usergroup](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_usergroup_module.html)
-    - [zabbix_valuemap](https://docs.ansible.com/ansible/2.10/collections/community/zabbix/zabbix_valuemap_module.html)
+    - [zabbix_action](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_action_module.html)
+    - [zabbix_authentication](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_authentication_module.html)
+    - [zabbix_autoregister](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_autoregister_module.html)
+    - [zabbix_discovery_rule](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_discovery_rule_module.html)
+    - [zabbix_globalmacro](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_globalmacro_module.html)
+    - [zabbix_group_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_group_info_module.html)
+    - [zabbix_group](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_group_module.html)
+    - [zabbix_host_events_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_host_events_info_module.html)
+    - [zabbix_host_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_host_info_module.html)
+    - [zabbix_host](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_host_module.html)
+    - [zabbix_hostmacro](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_hostmacro_module.html)
+    - [zabbix_housekeeping](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_housekeeping_module.html)
+    - [zabbix_maintenance](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_maintenance_module.html)
+    - [zabbix_map](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_map_module.html)
+    - [zabbix_mediatype](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_mediatype_module.html)
+    - [zabbix_proxy_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_proxy_info_module.html)
+    - [zabbix_proxy](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_proxy_module.html)
+    - [zabbix_screen](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_screen_module.html)
+    - [zabbix_script](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_script_module.html)
+    - [zabbix_service](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_service_module.html)
+    - [zabbix_template_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_template_info_module.html)
+    - [zabbix_template](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_template_module.html)
+    - [zabbix_user_info](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_user_info_module.html)
+    - [zabbix_user](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_user_module.html)
+    - [zabbix_usergroup](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_usergroup_module.html)
+    - [zabbix_valuemap](https://docs.ansible.com/ansible/latest/collections/community/zabbix/zabbix_valuemap_module.html)
   - **Roles**:
     - [zabbix_agent](docs/ZABBIX_AGENT_ROLE.md)
     - [zabbix_javagateway](docs/ZABBIX_JAVAGATEWAY_ROLE.md)
@@ -78,7 +83,15 @@ For the majority of modules, however, you can get away with just:
 ```bash
 pip install zabbix-api
 ```
+#### Ansible 2.10 and higher
 
+With the release of Ansible 2.10, modules have been moved into collections.  With the exception of ansible.builtin modules, this means additonal collections must be installed in order to use modules such as seboolean (now ansible.posix.seboolean).  The following collections are now frequently required: `ansible.posix` and `community.general`.  Installing the collections:
+
+```bash
+ansible-galaxy collection install ansible.posix
+ansible-galaxy collection install community.general
+ansible-galaxy collection install ansible.netcommon
+```
 ### Installing the Collection from Ansible Galaxy
 
 Before using the Zabbix collection, you need to install it with the Ansible Galaxy CLI:
@@ -87,13 +100,17 @@ Before using the Zabbix collection, you need to install it with the Ansible Gala
 ansible-galaxy collection install community.zabbix
 ```
 
-You can also include it in a `requirements.yml` file and install it via `ansible-galaxy collection install -r requirements.yml`, using the format:
+You can also include it in a `requirements.yml` file along with other required collections and install them via `ansible-galaxy collection install -r requirements.yml`, using the format:
 
 ```yaml
 ---
 collections:
   - name: community.zabbix
-    version: 1.4.0
+    version: 1.9.2
+  - name: ansible.posix
+    version: 1.3.0
+  - name: community.general
+    version: 3.7.0
 ```
 
 ### Upgrading collection
@@ -108,17 +125,44 @@ To use a module or role from this collection, reference them with their Fully Qu
 
 ```yaml
 ---
-- name: Using Zabbix collection
+- name: Using Zabbix collection to install Zabbix Agent
   hosts: localhost
   roles:
     - role: community.zabbix.zabbix_agent
       zabbix_agent_server: zabbix.example.com
       ...
 
+- name: If Zabbix WebUI runs on non-default (zabbix) path, e.g. http://<FQDN>/zabbixeu
+  set_fact:
+    ansible_zabbix_url_path: 'zabbixeu'
+
+- name: Using Zabbix collection to manage Zabbix Server's elements with username/password
+  hosts: zabbix.example.com
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false  # Set to true for HTTPS
+    ansible_httpapi_validate_certs: false  # For HTTPS et to true to validate server's certificate
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
   tasks:
     - name: Ensure host is monitored by Zabbix
       community.zabbix.zabbix_host:
-        server_url: https://zabbix.example.com
+        ...
+
+- name: Using Zabbix collection to manage Zabbix Server's elements with authentication key
+  hosts: zabbix.example.net
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false  # Set to true for HTTPS
+    ansible_httpapi_validate_certs: false  # For HTTPS set to true to validate server's certificate
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+  tasks:
+    - name: Ensure host is monitored by Zabbix
+      community.zabbix.zabbix_host:
         ...
 ```
 
@@ -136,18 +180,49 @@ Or you include collection name `community.zabbix` in the playbook's `collections
       zabbix_agent_server: zabbix.example.com
       ...
 
+- name: Using Zabbix collection to manage Zabbix Server's elements with username/password
+  hosts: zabbix.example.com
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false  # Set to true for HTTPS
+    ansible_httpapi_validate_certs: false  # For HTTPS et to true to validate server's certificate
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+  tasks:
+    - name: Ensure host is monitored by Zabbix
+      zabbix.zabbix_host:
+        ...
+
+- name: Using Zabbix collection to manage Zabbix Server's elements with authentication key
+  hosts: zabbix.example.net
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false  # Set to true for HTTPS
+    ansible_httpapi_validate_certs: false  # For HTTPS et to true to validate server's certificate
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
   tasks:
     - name: Ensure host is monitored by Zabbix
       zabbix_host:
-        server_url: https://zabbix.example.com
         ...
+```
+
+If Basic Authentication is required to access Zabbix server add following variables:
+```
+zabbix_api_http_user: "user"
+zabbix_api_http_password: "password"
 ```
 
 ## Supported Zabbix versions
 
 Main priority is to support Zabbix releases which have official full support from Zabbix LLC. Please checkout the versions at [Zabbix Life Cycle & Release Policy](https://www.zabbix.com/life_cycle_and_release_policy) page.
 
-Support for Zabbix versions will be dropped with Major releases of the collection and mostly affect modules. Each role is following its unique support matrix. You should always consult documentation of roles in *docs/* directory.
+> We aim to cover at least two LTS releases. For example, currently we support LTS 4.0 + 5.0 and with LTS 6.0 we will drop 4.0. But we do our best to also include the latest point releases - for example currently this is 5.4 which should be supperseeded by 6.2 then.
+
+Support for Zabbix LTS versions will be dropped with Major releases of the collection and mostly affect modules. Each role is following its unique support matrix. You should always consult documentation of roles in *docs/* directory.
 
 If you find any inconsistencies with the version of Zabbix you are using, feel free to open a pull request or an issue and we will try to address it as soon as possible. In case of pull requests, please make sure that your changes will not break any existing functionality for currently supported Zabbix releases.
 

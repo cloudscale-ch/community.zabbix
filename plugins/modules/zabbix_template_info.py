@@ -17,7 +17,6 @@ description:
     - This module allows you to search for Zabbix template.
 requirements:
     - "python >= 2.6"
-    - "zabbix-api >= 0.5.4"
 options:
     template_name:
         description:
@@ -27,7 +26,8 @@ options:
     format:
         description:
             - Format to use when dumping template.
-        choices: ['json', 'xml']
+            - C(yaml) works only with Zabbix >= 5.2.
+        choices: ['json', 'xml', 'yaml', 'none']
         default: json
         type: str
     omit_date:
@@ -39,14 +39,36 @@ options:
 extends_documentation_fragment:
 - community.zabbix.zabbix
 
+notes:
+- there where breaking changes in the Zabbix API with version 5.4 onwards (especially UUIDs) which may
+  require you to export the templates again (see version tag >= 5.4 in the resulting file/data).
 '''
 
 EXAMPLES = '''
+# Set following variables for Zabbix Server host in play or inventory
+- name: Set connection specific variables
+  set_fact:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_httpapi_port: 80
+    ansible_httpapi_use_ssl: false
+    ansible_httpapi_validate_certs: false
+    ansible_zabbix_url_path: 'zabbixeu'  # If Zabbix WebUI runs on non-default (zabbix) path ,e.g. http://<FQDN>/zabbixeu
+
+# If you want to use Username and Password to be authenticated by Zabbix Server
+- name: Set credentials to access Zabbix Server API
+  set_fact:
+    ansible_user: Admin
+    ansible_httpapi_pass: zabbix
+
+# If you want to use API token to be authenticated by Zabbix Server
+# https://www.zabbix.com/documentation/current/en/manual/web_interface/frontend_sections/administration/general#api-tokens
+- name: Set API token
+  set_fact:
+    ansible_zabbix_auth_key: 8ec0d52432c15c91fcafe9888500cf9a607f44091ab554dbee860f6b44fac895
+
 - name: Get Zabbix template as JSON
   community.zabbix.zabbix_template_info:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: admin
-    login_password: secret
     template_name: Template
     format: json
     omit_date: yes
@@ -54,17 +76,32 @@ EXAMPLES = '''
 
 - name: Get Zabbix template as XML
   community.zabbix.zabbix_template_info:
-    server_url: "http://zabbix.example.com/zabbix/"
-    login_user: admin
-    login_password: secret
     template_name: Template
     format: xml
     omit_date: no
   register: template_json
+
+- name: Get Zabbix template as YAML
+  community.zabbix.zabbix_template_info:
+    template_name: Template
+    format: yaml
+    omit_date: no
+  register: template_yaml
+
+- name: Determine if Zabbix template exists
+  community.zabbix.zabbix_template_info:
+    template_name: Template
+    format: none
+  register: template
 '''
 
 RETURN = '''
 ---
+template_id:
+  description: The ID of the template
+  returned: always
+  type: str
+
 template_json:
   description: The JSON of the template
   returned: when format is json and omit_date is true
@@ -140,6 +177,28 @@ template_xml:
             </template>
         </templates>
     </zabbix_export>
+
+template_yaml:
+  description: The YAML of the template
+  returned: when format is yaml and omit_date is false
+  type: str
+  sample: >-
+    zabbix_export:
+      version: '6.0'
+      date: '2022-07-09T13:25:18Z'
+      groups:
+        -
+          uuid: 7df96b18c230490a9a0a9e2307226338
+          name: Templates
+      templates:
+        -
+          uuid: 88a9ad240f924f669eb7d4eed736320c
+          template: 'Test Template'
+          name: 'Template for Testing'
+          description: 'Testing template import'
+          groups:
+            -
+              name: Templates
 '''
 
 
@@ -159,7 +218,7 @@ class TemplateInfo(ZabbixBase):
     def get_template_id(self, template_name):
         template_id = []
         try:
-            template_list = self._zapi.template.get({'output': 'extend',
+            template_list = self._zapi.template.get({'output': ['templateid'],
                                                      'filter': {'host': template_name}})
         except Exception as e:
             self._module.fail_json(msg='Failed to get template: %s' % e)
@@ -179,6 +238,16 @@ class TemplateInfo(ZabbixBase):
         except ValueError as e:
             self._module.fail_json(msg='Invalid JSON provided', details=to_native(e), exception=traceback.format_exc())
 
+    def load_yaml_template(self, template_yaml, omit_date=False):
+        if omit_date:
+            yaml_lines = template_yaml.splitlines(True)
+            for index, line in enumerate(yaml_lines):
+                if 'date:' in line:
+                    del yaml_lines[index]
+                    return ''.join(yaml_lines)
+        else:
+            return template_yaml
+
     def dump_template(self, template_id, template_type='json', omit_date=False):
         try:
             dump = self._zapi.configuration.export({'format': template_type, 'options': {'templates': template_id}})
@@ -193,6 +262,8 @@ class TemplateInfo(ZabbixBase):
                     return str(ET.tostring(xmlroot, encoding='utf-8'))
                 else:
                     return str(ET.tostring(xmlroot, encoding='utf-8').decode('utf-8'))
+            elif template_type == 'yaml':
+                return self.load_yaml_template(dump, omit_date)
             else:
                 return self.load_json_template(dump, omit_date)
         except Exception as e:
@@ -204,12 +275,18 @@ def main():
     argument_spec.update(dict(
         template_name=dict(type='str', required=True),
         omit_date=dict(type='bool', required=False, default=False),
-        format=dict(type='str', choices=['json', 'xml'], default='json')
+        format=dict(type='str', choices=['json', 'xml', 'yaml', 'none'], default='json')
     ))
     module = AnsibleModule(
         argument_spec=argument_spec,
         supports_check_mode=True
     )
+
+    zabbix_utils.require_creds_params(module)
+
+    for p in ['server_url', 'login_user', 'login_password', 'timeout', 'validate_certs']:
+        if p in module.params and not module.params[p] is None:
+            module.warn('Option "%s" is deprecated with the move to httpapi connection and will be removed in the next release' % p)
 
     template_name = module.params['template_name']
     omit_date = module.params['omit_date']
@@ -223,9 +300,25 @@ def main():
         module.fail_json(msg='Template not found: %s' % template_name)
 
     if format == 'json':
-        module.exit_json(changed=False, template_json=template_info.dump_template(template_id, template_type='json', omit_date=omit_date))
+        module.exit_json(
+            changed=False,
+            template_id=template_id[0],
+            template_json=template_info.dump_template(template_id, template_type='json', omit_date=omit_date)
+        )
     elif format == 'xml':
-        module.exit_json(changed=False, template_xml=template_info.dump_template(template_id, template_type='xml', omit_date=omit_date))
+        module.exit_json(
+            changed=False,
+            template_id=template_id[0],
+            template_xml=template_info.dump_template(template_id, template_type='xml', omit_date=omit_date)
+        )
+    elif format == 'yaml':
+        module.exit_json(
+            changed=False,
+            template_id=template_id[0],
+            template_yaml=template_info.dump_template(template_id, template_type='yaml', omit_date=omit_date)
+        )
+    elif format == 'none':
+        module.exit_json(changed=False, template_id=template_id[0])
 
 
 if __name__ == "__main__":

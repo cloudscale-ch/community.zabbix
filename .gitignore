@@ -1,8 +1,9 @@
 tests/output
 __pycache__
 
-# ignore visual studio code things
+# ignore visual studio code things, and intelliJ
 .vscode
+.idea
 
 # ignore Python Environments
 .env
@@ -15,3 +16,7 @@ venv.bak/
 
 # unit test
 .tox/
+
+# ignore dev stuff
+.devcontainer
+local_play.yml
