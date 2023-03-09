@@ -66,7 +66,7 @@ def is_sort_keys_supported():
     if not hasattr(yaml, '__version__'):
         return False
 
-    major, minor, patch = yaml.__version__.split('.')
+    major, minor, *_ = yaml.__version__.split('.')
 
     return int(major) >= 5 and int(minor) >= 1
 
